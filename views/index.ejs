@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Docker Volumes</title>
+    <!-- Toastify CSS -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <nav class="topbar">
+        <div class="topbar-content">
+            <h2>Docker Backup Manager</h2>
+            <div class="topbar-nav">
+                <a href="/" class="<%= currentPage === 'home' ? 'active' : '' %>">Volume List</a>
+                <a href="/backup-list" class="<%= currentPage === 'backup' ? 'active' : '' %>">Backup List</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+    <!-- include Toastify JS early so scripts below can use it -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+        <% if (currentPage === 'home') { %>
+            <h1>Docker Volumes</h1>
+            <% if (volumes && volumes.Volumes && volumes.Volumes.length) { %>
+                <form method="POST" action="/backup">
+                    <label for="volumeSelect">Choose a volume:</label>
+                    <select id="volumeSelect" name="volume">
+                        <% volumes.Volumes.forEach(function(v) { %>
+                            <option value="<%= v.Name %>"><%= v.Name %> (<%= v.Driver %>)</option>
+                        <% }); %>
+                    </select>
+                    <button type="submit">Backup</button>
+                </form>
+                <div id="volume-details" class="volume-details"></div>
+            <% } else { %>
+                <p>No volumes found.</p>
+            <% } %>
+        <% } else if (currentPage === 'backup') { %>
+            <h1>Backup Files</h1>
+            <div class="backup-list">
+                <% if (backupFiles && backupFiles.length) { %>
+                    <h3>Available Backups (<%= backupFiles.length %>)</h3>
+                    <ul>
+                        <% backupFiles.forEach(function(file) { %>
+                            <li>📦 <%= file %> 
+                                <div class="actions">
+                                    <a href="/restore/<%= encodeURIComponent(file) %>" class="restore-link">Restore</a>
+                                    <a href="/download/<%= encodeURIComponent(file) %>" class="download-link">Download</a>
+                                    <button class="delete-link" data-file="<%= encodeURIComponent(file) %>">Delete</button>
+                                </div>
+                            </li>
+                        <% }); %>
+                    </ul>
+                <% } else { %>
+                    <p>No backup files found.</p>
+                <% } %>
+            </div>
+        <% } else if (currentPage === 'restore') { %>
+            <h3>Restore Backup to Volume</h3>
+            <br>
+            <%= filename %>
+            <br><br>
+       
+            
+            <form method="POST" action="/restore">
+                <input type="hidden" name="filename" value="<%= filename %>" />
+                
+                <label>
+                    <input type="radio" name="mode" value="existing" checked onchange="toggleMode()" /> Select existing volume
+                </label>
+                <br>
+                <label>
+                    <input type="radio" name="mode" value="new" onchange="toggleMode()" /> Create new volume
+                </label>
+                <br><br>
+                
+                <div id="existingVolumeDiv">
+                    <label for="volumeSelectRestore">Select target volume:</label>
+                    <select id="volumeSelectRestore" name="volume">
+                        <% if (volumes && volumes.Volumes && volumes.Volumes.length) { %>
+                            <% volumes.Volumes.forEach(function(v) { %>
+                                <option value="<%= v.Name %>"><%= v.Name %></option>
+                            <% }); %>
+                        <% } else { %>
+                            <option value="">No volumes available</option>
+                        <% } %>
+                    </select>
+                </div>
+                
+                <div id="newVolumeDiv" style="display: none;">
+                    <label for="newVolumeName">New volume name:</label>
+                    <input type="text" id="newVolumeName" name="newVolumeName" placeholder="my_new_volume" />
+                </div>
+                
+                <br>
+                <button type="submit">Restore</button>
+            </form>
+
+        <% } %>
+    </div>
+    <script>
+        // fetch and display selected volume's details below the form
+        async function fetchVolumeInfo(name) {
+            const resp = await fetch('/volume/' + encodeURIComponent(name));
+            if (!resp.ok) throw new Error('Failed to fetch volume info');
+            return resp.json();
+        }
+
+        function renderVolumeDetails(info) {
+            const container = document.getElementById('volume-details');
+            container.textContent = JSON.stringify(info, null, 2);
+        }
+
+        function toggleMode() {
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            const existingDiv = document.getElementById('existingVolumeDiv');
+            const newDiv = document.getElementById('newVolumeDiv');
+            if (mode === 'existing') {
+                existingDiv.style.display = 'block';
+                newDiv.style.display = 'none';
+            } else {
+                existingDiv.style.display = 'none';
+                newDiv.style.display = 'block';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const select = document.getElementById('volumeSelect');
+            if (select) {
+                select.addEventListener('change', async () => {
+                    const name = select.value;
+                    try {
+                        const info = await fetchVolumeInfo(name);
+                        renderVolumeDetails(info);
+                    } catch (err) {
+                        document.getElementById('volume-details').textContent = 'Error loading details';
+                        console.error(err);
+                    }
+                });
+                // auto-load for first item
+                if (select.value) {
+                    select.dispatchEvent(new Event('change'));
+                }
+            }
+
+            // deletion handler for backup list
+            document.querySelectorAll('.delete-link').forEach(link => {
+                link.addEventListener('click', e => {
+                    e.preventDefault();
+                    const filename = link.getAttribute('data-file');
+                    if (confirm('Delete ' + decodeURIComponent(filename) + '?')) {
+                        window.location.href = '/delete/' + filename;
+                    }
+                });
+            });
+        });
+
+        // show toast if server passed a messag
+     
+        const serverMessage = "<%= message ? message.replace(/"/g, '\\"') : '' %>";
+        if (serverMessage) {
+            Toastify({
+                text: serverMessage,
+                duration: 3000,
+                gravity: "top", // top or bottom
+                position: "right", // left, center or right
+                close: true
+            }).showToast();
+        }
+   
+    </script>
+</body>
+</html>
